@@ -1,0 +1,766 @@
+
+<!-- |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/|
+
+    2D Path Planning in HTML5 Canvas
+
+    Various search algorithms for collision-free path planning in 2D worlds 
+      displayed in HTML5 Canvas, including: 
+
+      A-Star algorithm by Hart, Nilsson, and Raphael (1968) 
+      RRT and RRT-Connect algorithms by Kuffner and LaValle (2000)
+      RRT-Star algorithm by Karaman, Walter, et al. (2011)
+    @author ohseejay / https://github.com/ohseejay / https://bitbucket.org/ohseejay
+
+    Chad Jenkins
+    Laboratory for Perception RObotics and Grounded REasoning SystemS
+    University of Michigan
+
+    License: Creative Commons 3.0 BY-SA
+
+    //////////     //////////     //////////     //////////     //////////     
+
+    Usage: planner will start upon browser loading this file, with execution 
+      parameters specifing:
+
+      search_alg: string specifying choice of search algorithm, as one of:
+        "depth-first","breadth-first","greedy-best-first","A-star",
+        "RRT","RRT-connect","RRT-star"
+      planning_scene: string specifying choice of 2D world, as one of:
+        "empty","misc","narrow1","narrow2","three_sections"
+      q_init: 2-element 1D array with coordinates of start location
+      q_goal: 2-element 1D array with coordinates of goal location
+      eps: "epsilon" number for search spatial resolution of graph 
+        as well as RRT step length
+
+    these parameters can be specified in the URL as parameter assignments
+    separated by question marks, as in the following example: 
+
+      search_canvas.html?search_alg=A-star?planning_scene=misc?q_init=[0,0]?q_goal=[4,4]?eps=0.1
+
+|\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/| -->
+
+<html>
+
+<body onload="init()">
+
+My 2D planner
+<br>
+
+<canvas id="myCanvas" width=800 height=800 style="z-index: 10 ;border:1px solid #000000;">
+</canvas> 
+
+<script>
+
+//////////////////////////////////////////////////
+/////     INITIALIZATION FUNCTION DEFINITONS
+//////////////////////////////////////////////////
+theHeap = [];
+
+function init() {
+
+    // initialize search variables, data structures, DOM elements, etc.
+    initSearch();
+
+    // start main animation/iteration loop 
+    animate();
+}
+
+function initSearch() {
+    // specify default search algorithm to use for planning
+    //search_alg = "depth-first";  
+    //search_alg = "breadth-first";  
+    //search_alg = "greedy-best-first";  
+    search_alg = "A-star";  
+    //search_alg = "RRT";  
+    //search_alg = "RRT-connect";  
+    //search_alg = "RRT-star";  
+
+    // specify default the world for the planner 
+    //  (stored as "range" global variable with name "planning_scene")
+    //planning_scene = "empty";
+    //planning_scene = "misc";
+      planning_scene = "narrow1";
+    //planning_scene = "narrow2";
+    //planning_scene = "three_sections";
+
+    // specify default eps (epsilon) spatial resolution variable
+    //   for RRT, specifies threshold radius for step size and reaching goal
+    eps = 0.1;
+
+    // create event handlers for the mouse
+    canvas = document.getElementById("myCanvas");
+    mouse_x = 0;
+    mouse_y = 0;
+
+    // when the mouse moves, update the mouse's location
+    canvas.onmousemove = function handleMouseMove(event) {
+        mouse_x = event.clientX;
+        mouse_y = event.clientY;
+    };
+
+    // when the mouse button is pressed, update mouseDown
+    canvas.onmousedown = function() { 
+        mouseDown = 1; 
+    };
+
+    // when the mouse button is released, update mouseDown
+    canvas.onmouseup = function() {
+        mouseDown = 0;
+        q_goal = [xformViewWorldX(mouse_x),xformViewWorldY(mouse_y)];
+
+        // IMPORTANT: mouse_x and mouse_y are in absolute coordinates with
+        //    respect to the browser window, and in units of pixels.  The
+        //    xformViewWorldX only considers relative coordinates for the
+        //    canvas element.
+    };   
+
+    // specify start and goal configurations
+    q_start_config = [0,0];
+    q_goal_config = [4,4];
+    q_init = q_start_config;
+    q_goal = q_goal_config;
+
+    var url_parsed = window.location.href.split("?");
+    for (i=1;i<url_parsed.length;i++) {
+        var param_parsed = url_parsed[i].split("=");
+        //eval(param_parsed[0]+"=\'"+param_parsed[1]+"\'");
+        if ((param_parsed[0] !== "search_alg")&&(param_parsed[0] !== "planning_scene"))
+            eval(param_parsed[0]+"="+param_parsed[1]);
+        else
+            eval(param_parsed[0]+"=\'"+param_parsed[1]+"\'");
+    }
+
+    // set the world for the planner 
+    setPlanningScene();
+
+    // initialize search tree from start configurations (RRT-based algorithms)
+    T_a = initRRT(q_init);
+    // also initialize search tree from goal configuration (RRT-Connect)
+    T_b = initRRT(q_goal);
+
+    // initialize graph search algorithms (DFS, BFS, A-star) 
+    initSearchGraph();
+
+    // flag to continue or stop search iterations
+    search_iterate = true;
+
+    // counter for number of search iterations executed
+    search_iter_count = 0;
+    search_result = "starting";
+
+    // threshold for number of maximum search iterations for certain algorithms
+    search_max_iterations = 10000;
+
+    // counter for number of configurations visited
+    search_visited = 0;
+
+    // variable to sum final path length
+    path_length = 0;
+
+    // capture the current system time for timing of successive iterations
+    //   using the given Date object
+    cur_time = Date.now();
+
+    // specify minimum number of milliseconds between successive search 
+    //   iterations
+    min_msec_between_iterations = 20;
+
+    // create textbar DOM element for text output to browser window
+    textbar = document.createElement('div');
+    textbar.style.zIndex = 0;    // if you still don't see the label, try uncommenting this
+    textbar.style.position = 'absolute';
+    textbar.style.width = window.width-10;
+    textbar.style["font-family"] = "Monospace";
+    textbar.style["font-size"] = "14px";
+    textbar.style.height = 20;
+    textbar.style.color = "#000000";
+    textbar.innerHTML = "4Progress - RRT Canvas";
+    //textbar.style.top = 30 + 'px';  // position textbar wrt. document
+    textbar.style.top = (25 + document.getElementById("myCanvas").offsetTop) + 'px';  // position textbar wrt. canvas
+    textbar.style.left = 30 + 'px';
+    document.body.appendChild(textbar);
+
+}
+
+//////////////////////////////////////////////////
+/////     ANIMATION AND INTERACTION LOOP
+//////////////////////////////////////////////////
+
+function animate() {
+
+    // IMPORTANT: 
+    //   Search iterations occur asynchronously, once per call to this function.
+    //   This structure does not use an explicit loop to advance the search.
+    //   Such an explicit loop would keep the process inside this function
+    //   without giving control back to the browser run-time.  As a result, 
+    //   the browser would become non-responsive and non-interactive.
+    //   In this asynchronous structure, the animate function is called to 
+    //   first perform one iteration of the search algorithm, then register
+    //   itself as an animation callback to the brower using the 
+    //   requestAnimationFrame() function, and finally returning out of the
+    //   function (giving control back to the browser).  
+    //   requestAnimationFrame() sets this function to be executed 
+    //   again in the very near future.  Such behavior is similar to expected 
+    //   control flow of the setInterval function.
+
+    // render the world to the canvas element
+    drawRobotWorld();
+
+    // make sure the rrt iterations are not running faster than animation update
+    if (search_iterate && (Date.now()-cur_time > min_msec_between_iterations)) {
+
+        // update time marker for last iteration update
+        cur_time = Date.now();
+
+        // update iteration count
+        search_iter_count++; 
+
+        // call iteration for the selected search algorithm
+        switch (search_alg) {
+            case "depth-first": 
+            case "breadth-first": 
+            case "greedy-best-first": 
+            case "A-star": 
+                search_result = iterateGraphSearch();
+                break;
+            case "RRT": 
+                search_result = iterateRRT();
+                break;
+            case "RRT-connect": 
+                search_result = iterateRRTConnect();
+                break;
+            case "RRT-star": 
+                search_result = iterateRRTStar();
+                break;
+            default: 
+                console.warn('search_canvas: search algorithm not found, using rrt as default');
+                search_result = iterateRRT();
+                break;
+        }
+    }
+
+    // update textbar with current search state
+    textbar.innerHTML = 
+        search_alg + " progress: " + search_result
+        + " <br> "
+        + "start: " + q_init
+        + " | "
+        + "goal: " + q_goal
+        + " <br> "
+        + "iteration: " + search_iter_count
+        + " | "
+        + "visited: " + search_visited
+        + " | "
+        + "queue size: " + visit_queue.length
+        + " <br> "
+        + "path length: " + path_length.toFixed(2);
+        //textbar.innerHTML += "<br> mouse ("+ mouse_x+","+mouse_y+")";
+        textbar.innerHTML += "<br> mouse ("+ xformViewWorldX(mouse_x)+","+xformViewWorldY(mouse_y)+")";
+
+
+    // callback request for the animate function be called again
+    //   more details online:  http://learningwebgl.com/blog/?p=3189
+   
+		requestAnimationFrame( animate );
+}
+
+function checkVictory(nodeu){
+	q_goal;
+	if(Math.abs(nodeu.x - q_goal[0]) < .04 && Math.abs(nodeu.y - q_goal[1]) < .04){
+		drawHighlightedPathGraph(nodeu);
+		search_iterate = false;
+		return true;
+	}
+	return false;
+}
+
+
+function iterateGraphSearch() {
+
+
+    // STENCIL: implement a single iteration of a graph search algorithm
+    //   for A-star (or DFS, BFS, Greedy Best-First)
+    //   An asynch timing mechanism is used instead of a for loop to avoid 
+    //   blocking and non-responsiveness in the browser.
+    //
+    //   Return "failed" if the search fails on this iteration.
+    //   Return "succeeded" if the search succeeds on this iteration.
+    //   Return "iterating" otherwise.
+    //
+    //   Provided support functions:
+    //
+    //   testCollision - returns whether a given configuration is in collision
+    //   drawHighlightedPathGraph - draws a path back to the start location
+    //   draw_2D_configuration - draws a square at a given location 
+	if(visit_queue.length == 0) {
+		search_iterate = false;
+		return "failed";
+	} else {
+		ourNode = minheap_extract(visit_queue);
+		ourNode.queued = false;
+		ourNode.visited = true;
+		search_visited += 1;
+		console.log("Extracted a node with position " + ourNode.x + ", " + ourNode.y + " from the heap!");
+		arrayLoc = [ourNode.x, ourNode.y];
+		draw_2D_configuration(arrayLoc);
+		//check victory here
+		didWeWin = checkVictory(ourNode);
+		if(didWeWin){
+			return "succeeded";
+		}
+		neighbors = [ G[(ourNode.i - 1)][ourNode.j], G[ourNode.i+1][ourNode.j], G[ourNode.i][ourNode.j+1], G[ourNode.i][ourNode.j -1]];
+		//console.log(neighbors[0].x);
+		for(loopVar = 0; loopVar < 4; loopVar++){
+			noder = neighbors[loopVar];
+			if(noder == null) {
+				continue; //can't add a null node to the queue!
+			} 
+			if(noder.queued || noder.visited) {
+				continue; //this node has already been dealt with
+			} 
+			collCheckMatrix = [noder.x, noder.y];
+			if(testCollision(collCheckMatrix)) {
+				continue; //can't add an obstructed node to the queue!
+			}
+			//now we're ready to actually add it!
+			addToHeap(noder, ourNode);
+		}
+	}
+	
+	return "iterating";
+}
+
+
+function iterateRRT() {
+
+
+    // STENCIL: implement a single iteration of an RRT algorithm.
+    //   An asynch timing mechanism is used instead of a for loop to avoid 
+    //   blocking and non-responsiveness in the browser.
+    //
+    //   Return "failed" if the search fails on this iteration.
+    //   Return "succeeded" if the search succeeds on this iteration.
+    //   Return "extended" otherwise.
+    //
+    //   Provided support functions:
+    //
+    //   testCollision - returns whether a given configuration is in collision
+    //   tree_init - creates a tree of configurations
+    //   insertTreeVertex - adds and displays new configuration vertex for a tree
+    //   insertTreeEdge - adds and displays new tree edge between configurations
+    //   drawHighlightedPath - renders a highlighted path in a tree
+}
+
+function iterateRRTConnect() {
+
+
+    // STENCIL: implement a single iteration of an RRT-Connect algorithm.
+    //   An asynch timing mechanism is used instead of a for loop to avoid 
+    //   blocking and non-responsiveness in the browser.
+    //
+    //   Return "failed" if the search fails on this iteration.
+    //   Return "succeeded" if the search succeeds on this iteration.
+    //   Return "extended" otherwise.
+    //
+    //   Provided support functions:
+    //
+    //   testCollision - returns whether a given configuration is in collision
+    //   tree_init - creates a tree of configurations
+    //   insertTreeVertex - adds and displays new configuration vertex for a tree
+    //   insertTreeEdge - adds and displays new tree edge between configurations
+    //   drawHighlightedPath - renders a highlighted path in a tree
+}
+
+function iterateRRTStar() {
+
+}
+
+//////////////////////////////////////////////////
+/////     STENCIL SUPPORT FUNCTIONS
+//////////////////////////////////////////////////
+
+// functions for transforming canvas coordinates into planning world coordinates
+function xformWorldViewX(world_x) {
+    return (world_x*100)+200;  // view_x
+}
+function xformWorldViewY(world_y) {
+    return (world_y*100)+200;  // view_y
+}
+function xformViewWorldX(view_x) {
+    return (view_x-200)/100;  // view_x
+}
+function xformViewWorldY(view_y) {
+    return (view_y-200)/100;  // view_y
+}
+
+
+function drawRobotWorld() {
+
+    // draw start and goal configurations
+    c = document.getElementById("myCanvas");
+    ctx = c.getContext("2d");
+    ctx.fillStyle = "#0000FF";
+    ctx.fillRect(xformWorldViewX(q_init[0])-5,xformWorldViewY(q_init[1])-5,10,10);
+    ctx.fillStyle = "#00FF00";
+    ctx.fillRect(xformWorldViewX(q_goal[0])-5,xformWorldViewY(q_goal[1])-5,10,10);
+
+    // draw robot's world
+    for (j=0;j<range.length;j++) { 
+        ctx.fillStyle = "#8888FF";
+        ctx.fillRect(xformWorldViewX(range[j][0][0]),xformWorldViewY(range[j][1][0]),xformWorldViewX(range[j][0][1])-xformWorldViewX(range[j][0][0]),xformWorldViewY(range[j][1][1])-xformWorldViewY(range[j][1][0]));
+    }
+ 
+}
+
+function drawHighlightedPath(path) {
+    ctx = c.getContext("2d");
+    ctx.strokeStyle="#0000FF";
+    ctx.lineWidth=4;
+    ctx.beginPath();
+    for (i=1;i<path.length;i++) {
+        ctx.moveTo(xformWorldViewX(path[i-1].vertex[0]),xformWorldViewY(path[i-1].vertex[1]));
+        ctx.lineTo(xformWorldViewX(path[i].vertex[0]),xformWorldViewY(path[i].vertex[1]));
+    }
+    ctx.stroke();
+}
+
+function drawHighlightedPathGraph(current_node) {
+
+    // traverse path back to start and draw path
+    ctx.strokeStyle="#0000FF";
+    ctx.lineWidth=4;
+    ctx.beginPath();
+    path_length = 0; 
+    q_path_ref = current_node; 
+    while (q_path_ref.distance > 0) {
+        // KE: find cleaner way to draw edges
+        //draw_2D_edge_configurations([q_path_ref.x,q_path_ref.y],[q_path_ref.parent.x,q_path_ref.parent.y]);
+        ctx.moveTo(xformWorldViewX(q_path_ref.x),xformWorldViewY(q_path_ref.y));
+        ctx.lineTo(xformWorldViewX(q_path_ref.parent.x),xformWorldViewY(q_path_ref.parent.y));
+        path_length += Math.sqrt(Math.pow(q_path_ref.x-q_path_ref.parent.x,2)+Math.pow(q_path_ref.y-q_path_ref.parent.y,2));
+        q_path_ref = q_path_ref.parent;
+    }
+    ctx.closePath();
+    ctx.stroke();
+}
+
+function distanceToGoal(myNode){
+	distance = Math.abs(q_goal[0] - myNode.x) + Math.abs(q_goal[1] - myNode.y);
+	return distance;
+}
+
+function addToHeap(myNode, parent){
+	//first things first, initialize all of the nontrivial vars of myNode.
+	myNode.queued = true;
+	myNode.parent = parent;
+	if(myNode.parent == null)
+		myNode.distance = 0;
+	else
+		myNode.distance = parent.distance + Math.abs(myNode.x - parent.x) + Math.abs(myNode.y - parent.y); //assuming it's on a grid this works.
+	myNode.priority = myNode.distance +  .8 * distanceToGoal(myNode);
+	//console.log(myNode.priority);
+	//all variables are now initialized!
+	
+	minheap_insert(visit_queue, myNode);
+	
+	
+	
+}
+
+function initSearchGraph() {
+
+    // initialize search graph as 2D array over configuration space 
+    //   of 2D locations with specified spatial resolution 
+    G = [];
+	visit_queue = [];
+	var solutionFound = false;
+	console.log("Starting position to be initialized at: " + q_init[0] + ", " + q_init[1]);
+    for (iind=0,xpos=-2;xpos<7;iind++,xpos+=eps) {
+        G[iind] = [];
+        for (jind=0,ypos=-2;ypos<7;jind++,ypos+=eps) {
+            G[iind][jind] = {
+                i:iind,j:jind, // mapping to graph array
+                x:xpos,y:ypos, // mapping to map coordinates
+                parent:null, // pointer to parent in graph along motion path
+                distance:10000, // distance to start via path through parent
+                visited:false, // flag for whether the node has been visited
+                priority:null, // visit priority based on fscore
+                queued:false // flag for whether the node has been queued for visiting
+            };
+			//console.log(G[iind][jind].x + ", " + G[iind][jind].y);
+            // STENCIL: determine whether this graph node should be the start
+			if(Math.abs(G[iind][jind].x - q_init[0]) < .04 && Math.abs(G[iind][jind].y - q_init[1]) < .04){
+				//then this is the start point and we can init the search graph!
+				addToHeap(G[iind][jind], null);
+				console.log("Found start location at " + G[iind][jind].x + ", " + G[iind][jind].y + "!");
+			}
+        }
+    }
+	
+}
+
+function setPlanningScene() {
+
+    // obstacles specified as a range along [0] (x-dimension) and [1] y-dimension
+    range = []; // global variable
+
+    // world boundary
+    range[0] = [ [-1.8,5.8],[-1.8,-1] ];
+    range[1] = [ [-1.8,5.8],[5,5.8] ];
+    range[2] = [ [-1.8,-1], [-1.8,5.8] ];
+    range[3] = [ [5,5.8],   [-1.8,5.8] ];
+
+    if (typeof planning_scene === 'undefined')
+        planning_scene = 'empty';
+
+    if (planning_scene == 'misc') {
+        /*  misc stuff with narrow opening */
+        range[4] = [ [1,2],[1,2] ];
+        range[5] = [ [3,3.3],[1,4] ];
+        range[6] = [ [0.6,0.7],[0.4,0.7] ];
+        range[7] = [ [3.7,3.9],[-0.8,5] ];
+    }
+    else if (planning_scene == 'narrow1') {
+        /*  narrow path 1 */
+        range[4] = [ [1,3],[4,5] ];
+        range[5] = [ [1,3],[-1,2] ];
+        range[6] = [ [1,1.95],[2,3.8] ];
+    }
+    else if (planning_scene == 'narrow2') {
+        /*  narrow path 2 */
+        range[4] = [ [1,3],[4,5] ];
+        range[5] = [ [1,3],[-1,2] ];
+        range[6] = [ [1,1.9],[2,3.8] ];
+        range[7] = [ [2.1,3],[2.2,4] ];
+    }
+    else if (planning_scene == 'three_sections') {
+        /*  three compartments */
+        range[4] = [ [1,1.3],[4,5] ];
+        range[5] = [ [1,1.3],[-1,3.5] ];
+        range[6] = [ [2.7,3],[-1,0] ];
+        range[7] = [ [2.7,3],[.5,5] ];
+    }
+}
+
+function testCollision(q) {
+
+    var j;
+
+    // test for collision with each object
+    for (j=0;j<range.length;j++) { 
+
+        // assume configuration is in collision
+        var in_collision = true; 
+
+        // no collision detected, if configuration is outside obstacle along any dimension
+        for (i=0;i<q.length;i++) { 
+            if ((q[i]<range[j][i][0])||(q[i]>range[j][i][1]))
+                in_collision = false;
+        }
+    
+        // return collision, if configuration inside obstacle extents along all dimensions
+        if (in_collision)
+            return true;
+    }
+
+    // return no collision, if no collision detected with any obstacle
+    return false;
+}
+
+function initRRT(q) {
+
+    // create tree object
+    var tree = {};
+
+    // initialize with vertex for given configuration
+    tree.vertices = [];
+    tree.vertices[0] = {};
+    tree.vertices[0].vertex = q;
+    tree.vertices[0].edges = [];
+
+    // maintain index of newest vertex added to tree
+    tree.newest = 0;
+
+    return tree;
+}
+
+function insertTreeVertex(tree,q) {
+
+    // create new vertex object for tree with given configuration and no edges
+    new_vertex = {};
+    new_vertex.edges = [];
+    new_vertex.vertex = q;
+    tree.vertices.push(new_vertex);
+
+    // maintain index of newest vertex added to tree
+    tree.newest = tree.vertices.length - 1;
+
+    // draw location on canvas
+    draw_2D_configuration(q);
+}
+
+function draw_2D_configuration(q) {
+    // draw location of 2D configuration on canvas
+    c = document.getElementById("myCanvas");
+    ctx = c.getContext("2d");
+    ctx.fillStyle = "#8888AA";
+    ctx.fillRect(xformWorldViewX(q[0])-3,xformWorldViewY(q[1])-3,6,6);
+}
+
+function draw_2D_edge_configurations(q1,q2) {
+    // draw line between locations of two 2D configurations on canvas
+    c = document.getElementById("myCanvas");
+    ctx = c.getContext("2d");
+    ctx.beginPath();
+    ctx.moveTo(xformWorldViewX(q1[0]),xformWorldViewY(q1[1]));
+    ctx.lineTo(xformWorldViewX(q2[0]),xformWorldViewY(q2[1]));
+    ctx.stroke();
+}
+
+function insertTreeEdge(tree,q1_idx,q2_idx) {
+
+    // add edge to first vertex as pointer to second vertex
+    tree.vertices[q1_idx].edges.push(tree.vertices[q2_idx]);
+
+    // add edge to second vertex as pointer to first vertex
+    tree.vertices[q2_idx].edges.push(tree.vertices[q1_idx]);
+
+    // draw edge on canvas
+    draw_2D_edge_configurations(tree.vertices[q1_idx].vertex,tree.vertices[q2_idx].vertex); 
+}
+
+//////////////////////////////////////////////////
+/////     MIN HEAP IMPLEMENTATION FUNCTIONS
+//////////////////////////////////////////////////
+
+    // STENCIL: implement min heap functions for graph search priority queue.
+    //   These functions work use the 'priority' field for elements in graph.
+// create empty object 
+minheaper = { 
+}; 
+
+function parentOf(num){
+	if(num == 0) return 0;
+	return Math.floor((num - 1) / 2);
+	
+}
+
+function verifyHeap(heap){
+	if(heap.length < 2) return;
+	for(heapCounter = heap.length - 1; heapCounter >= 0; heapCounter--){
+		if(heap[heapCounter].priority < heap[parentOf(heapCounter)].priority){
+			console.log("THE HEAP IS BROKEN!");
+			console.log(heap[heapCounter] + " is the child of " + heap[parentOf(heapCounter)] + " which is wrong!");
+		}
+	}
+	}
+
+function childOne(num) {
+	return (num * 2) + 1;
+}
+
+function childTwo(num) {
+	return (num * 2) + 2;
+}
+
+function swap(array, idx1, idx2){
+console.log("swapped " + idx1 + "(" + array[idx1] + ") with " + idx2 + "(" + array[idx2] + ").");
+	var temp = array[idx1];
+	array[idx1] = array[idx2];
+	array[idx2] = temp;
+	
+}
+
+// define insert function for min binary heap
+function minheap_insert(heap, new_element) {
+	//console.log(new_element.priority);
+	heap.push(new_element);
+	var idx = heap.length - 1;
+	
+	while(heap[idx].priority < heap[parentOf(idx)].priority){
+		swap(heap, idx, parentOf(idx));
+		idx = parentOf(idx);
+	}
+	//verifyHeap(heap);
+    // STENCIL: implement your min binary heap insert operation
+}
+
+// assign insert function within minheaper object
+minheaper.insert = minheap_insert;
+/* Note: because the minheap_insert function is an object, we can assign 
+      a reference to the function within the minheap object, which can be called
+      as minheap.insert
+*/
+
+function minHeapify(myIdx, heap) {
+	var smallest = myIdx;
+	if(childTwo(myIdx) < heap.length && heap[childTwo(myIdx)].priority < heap[myIdx].priority && childOne(myIdx) < heap.length && heap[childOne(myIdx)].priority < heap[myIdx].priority)
+	{
+		if(heap[childOne(myIdx)].priority < heap[childTwo(myIdx)].priority){
+			smallest = childOne(myIdx);
+		} else {
+			smallest = childTwo(myIdx);
+		}
+	}
+	else if(childTwo(myIdx) < heap.length && heap[childTwo(myIdx)].priority < heap[myIdx].priority){
+			smallest = childTwo(myIdx);
+	}
+	else if(childOne(myIdx) < heap.length && heap[childOne(myIdx)].priority < heap[myIdx].priority){
+			smallest = childOne(myIdx);
+	}
+	
+	if(smallest != myIdx){
+		swap(heap, smallest, myIdx);
+		minHeapify(smallest, heap);
+	} else {
+		console.log("The heap is done heapifying!");
+		
+	}
+}
+
+// define extract function for min binary heap
+function minheap_extract(heap) {
+	if(heap.length == 0) {
+	console.log("You can't extract from an empty heap!");
+	return;
+	}
+	var valuePulled = heap[0];
+	lengthBefore = heap.length;
+	heap[0] = heap.pop();
+	lengthAfter = heap.length;
+	if(lengthBefore == lengthAfter && lengthAfter == 1){
+	//there's a strange behavior with pop when there's only one node remaining in the heap where it overwrites itself and doesn't decrease in length. This fixes it.
+		heap.pop();
+	}
+	minHeapify(0, heap);
+	//verifyHeap(heap);
+
+	return valuePulled;
+    // STENCIL: implement your min binary heap extract operation
+}
+
+// assign extract function within minheaper object
+minheaper.extract = minheap_extract;
+    // STENCIL: ensure extract method is within minheaper object
+
+
+
+//////////////////////////////////////////////////
+/////     RRT IMPLEMENTATION FUNCTIONS
+//////////////////////////////////////////////////
+
+    // STENCIL: implement RRT-Connect functions here, such as:
+    //   extendRRT
+    //   connectRRT
+    //   randomConfig
+    //   newConfig
+    //   findNearestNeighbor
+    //   dfsPath
+
+</script>
+
+
+</body>
+</html>
+
+
