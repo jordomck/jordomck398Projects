@@ -62,7 +62,8 @@ function init() {
 
     // initialize integral term accumulated error to zero
     accumulated_error = 0;
-
+	currentError = 0;
+	
     // set gravity
     gravity = 9.81;  // Earth gravity
 
@@ -131,12 +132,25 @@ function animate() {
 
     // add user force from user interaction
     if ( keyboard.pressed("d") )
-        pendulum.control += 50.0;  // add a motor force to the pendulum motor
+        pendulum.control += 5.0;  // add a motor force to the pendulum motor
     else if ( keyboard.pressed("a") )
-        pendulum.control += -50.0; // add a motor force to the pendulum motor
+        pendulum.control += -5.0; // add a motor force to the pendulum motor
 
     // STENCIL: implement servo controller
-
+	
+	//PID EQUATION:
+	//force applied = GAIN PARAMETER * currentError + INTEGRAL GAIN * the sum of the previous errors? +  DERIVATIVE GAIN * deltaError
+	if(servo_active_state == "active"){
+	prevError = currentError;
+	currentError = (pendulum.desired - pendulum.angle);1
+	accumulated_error += currentError;
+	deltaError = (currentError - prevError) * dt;
+	pendulum.servo.kd = 4000 * deltaError;
+	pendulum.servo.kp = 15 * currentError;
+	pendulum.servo.ki = 6 * accumulated_error;
+	servoForce = pendulum.servo.kd + pendulum.servo.kp + pendulum.servo.ki;
+	console.log("ERROR = " + currentError);
+	}
     // toggle activation of servo controller from user interaction
     if (keyboard.pressed("c"))
         servo_active_persist = !servo_active_persist;
@@ -156,6 +170,16 @@ function animate() {
         numerical_integrator = "none";
 
     if (numerical_integrator === "euler") {
+		pendulum.angle_previous = pendulum.angle;
+		
+		//calculate acceleration
+		accel = pendulum_acceleration(pendulum, -gravity);
+		if(servo_active_state == "active") {
+		 accel += addUserForce(pendulum);
+		 accel += servoForce;
+		}
+		pendulum.angle_dot += accel * dt;
+		pendulum.angle += pendulum.angle_dot * dt;
 
     // STENCIL: a correct Euler integrator is REQUIRED for assignment
 
@@ -168,6 +192,20 @@ function animate() {
     else if (numerical_integrator === "velocity verlet") {
 
     // STENCIL: a correct velocity Verlet integrator is REQUIRED for assignment
+		console.log("Switched with dot of " + pendulum.angle_dot);
+		pendulum.angle_previous = pendulum.angle;
+		accel = pendulum_acceleration(pendulum, -gravity);
+		if(servo_active_state == "active")  {
+			accel += addUserForce(pendulum);
+			accel += servoForce;
+		}
+		console.log("accel is " + accel);
+		pendulum.angle_dot += .5 * accel * dt;
+		pendulum.angle += pendulum.angle_dot * dt;
+		newAccel = pendulum_acceleration(pendulum, -gravity); //use new position to calc accel
+		if(servo_active_state == "active") newAccel += addUserForce(pendulum);
+		pendulum.angle_dot += .5 * newAccel * dt;
+	
 
     }
     else if (numerical_integrator === "runge-kutta") {
@@ -233,6 +271,11 @@ function animate() {
 
 function pendulum_acceleration(p,g) {
     // STENCIL: return acceleration(s) system equation(s) of motion 
+	return p.length * Math.sin(p.angle) * p.mass * g;
+}
+
+function addUserForce(p) {
+	return p.control;
 }
 
 function createScene() {
