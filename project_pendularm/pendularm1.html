@@ -146,13 +146,23 @@ function animate() {
 	//force applied = GAIN PARAMETER * currentError + INTEGRAL GAIN * the sum of the previous errors? +  DERIVATIVE GAIN * deltaError
 	if(servo_active_state == "active"){
 	prevError = currentError;
-	currentError = (pendulum.desired - pendulum.angle);
+	currentError = (pendulum.desired - pendulum.angle); //positive to go clockwise
+	//calculate if better error can be achieved by going around the zero point
+	if(currentError < 0){
+		alternativeError = currentError + 2*Math.PI;
+	} else {
+		alternativeError = currentError - 2*Math.PI;
+	}
+	if(Math.abs(alternativeError) < Math.abs(currentError)){
+		currentError = alternativeError;
+	}
 	accumulated_error += currentError;
 	deltaError = (currentError - prevError ) * dt;
-	if(Math.sign(currentError * prevError) == -1) deltaError = 0;
+	//if(Math.sign(currentError * prevError) == -1) deltaError = 0;
+	//if(Math.abs(deltaError) > .4 * Math.PI) deltaError = 0;
 	pendulum.servo.kd = 5000 * deltaError;
-	pendulum.servo.kp = 15 * currentError;
-	pendulum.servo.ki = 6 * accumulated_error;
+	pendulum.servo.kp = 60 * currentError;
+	pendulum.servo.ki = 1 * accumulated_error;
 	servoForce = pendulum.servo.kd + pendulum.servo.kp + pendulum.servo.ki;
 	console.log("ERROR = " + currentError);
 	}
