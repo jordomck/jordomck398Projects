@@ -78,7 +78,7 @@ THREEx.KeyboardState.ALIAS	= {
 THREEx.KeyboardState.prototype._onKeyChange	= function(event, pressed)
 {
 	// log to debug
-	//console.log("onKeyChange", event, pressed, event.keyCode, event.shiftKey, event.ctrlKey, event.altKey, event.metaKey)
+	console.log("onKeyChange", event, pressed, event.keyCode, event.shiftKey, event.ctrlKey, event.altKey, event.metaKey)
 
 	// update this.keyCodes
 	var keyCode		= event.keyCode;
