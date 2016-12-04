@@ -75,23 +75,28 @@ function startingPlaceholderAnimate() {
     // keyboard is threejs helper for reading keyboard state
     if (keyboard.pressed("x")) {
         textbar.innerHTML = "moving on up";  // make the pieces move up
-    // STENCIL: update the vertical offset variable
+		// STENCIL: update the vertical offset variable DONE
+		vert_offset += .05;
     }
     else if (keyboard.pressed("z")) {
         textbar.innerHTML = "relax your mind, let your conscience be free";  // stop jittering the pieces
-    // STENCIL: update the radius of the jittering
+    // STENCIL: update the radius of the jittering DONE
+		jitter_radius = 0;
     }
     else if (keyboard.pressed("shift+1")) { 
         textbar.innerHTML = "get a move on";  // increase spacing
-    // STENCIL: update the global spacing variable
+    // STENCIL: update the global spacing variable DONE
+		global_spacing += .01;
+		
     }
     else if (keyboard.pressed("1")) {
         textbar.innerHTML = "come together";  // decrease spacing
-    // STENCIL: update the global spacing variable
+    // STENCIL: update the global spacing variable DONE
+		global_spacing -= .01;
     }
     else {
         // make the pieces jitter, and say something more interesting
-        textbar.innerHTML = "Welcome to KinEval. I want to see some text. Can you place a message here?";  // set message text
+        textbar.innerHTML = "Welcome to KinEval. Here's a message for you!~";  // set message text
         vert_offset = 1;
         jitter_radius = 0.2;
     }
