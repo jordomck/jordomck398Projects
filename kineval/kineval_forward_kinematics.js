@@ -31,13 +31,15 @@ kineval.robotForwardKinematics = function robotForwardKinematics () {
 kineval.buildFKTransforms = function buildFKTransforms() {
 	//put the base in world coordinates
 	//first multiply the rotations of Z * Y
-	z = matrix_copy(generate_rotation_matrix_Z(robot.origin.rpy[2]));
-	zy = matrix_multiply(generate_rotation_matrix_Z(robot.origin.rpy[2]), generate_rotation_matrix_Y(robot.origin.rpy[1]));
+	var z = matrix_copy(generate_rotation_matrix_Z(robot.origin.rpy[2]));
+	zz = matrix_multiply(z,z);
+	var y = generate_rotation_matrix_Y(robot.origin.rpy[1])
+	var zy = matrix_multiply(z, y);
 	//now multiply this matrix by rotx
 	zyx = matrix_multiply(zy, generate_rotation_matrix_X(robot.origin.rpy[0]));
+	//printMatrix(zyx);
 	//finally combine with translation
 	robot.origin.xform = matrix_multiply(zyx, generate_translation_matrix(robot.origin.xyz[0], robot.origin.xyz[1],robot.origin.xyz[2]));
-	
 	//compute heading
 	forward_heading_local = [[0], [0], [1], [1]]; //these are in double brackets so that it is the transformed, 2d version, ready for multiplication. This = forward on z only. Sounds good.
 	//set heading world
@@ -62,31 +64,40 @@ kineval.buildFKTransforms = function buildFKTransforms() {
 
 
 kineval.traverseFKLink = function traverseFKLink(beginningLoc, myLink){
-	console.log("moving through a link named " + myLink.name);
-	copiedBeginning = matrix_copy(beginningLoc); //make sure we're not overwriting anything...
+	//console.log("moving through a link named " + myLink.name);
+	
+		//console.log("children data type is " + typeof myLink.children);
+	
+	var copiedBeginning = matrix_copy(beginningLoc); //make sure we're not overwriting anything...
 	
 	//we need to visit EVERY child joint of the link, so we have to use recursion.
 	//first check if there are any children at all...
 	myLink.xform = copiedBeginning;
-	if(typeof myLink.children !== 'undefined'){
+	if(typeof myLink.children === 'undefined'){
+		//console.log("reached the end of the hierarchy.");
+		return;
+	} 
+	if(typeof myLink.children !== 'undefined' && myLink.children.length > 0){
 		
-		console.log("children data type is " + typeof myLink.children);
 		 //links are at the same transform as their parent joint...
-		for(i = 0; i < myLink.children.length; i++){
-			kineval.traverseFKJoint(copiedBeginning, robot.joints[myLink.children[i]]);
+		for(var uniqua = 0; uniqua < myLink.children.length; uniqua++){
+			//console.log("traversing child number " + (uniqua+1) + " out of " + myLink.children.length);
+			kineval.traverseFKJoint(copiedBeginning, robot.joints[myLink.children[uniqua]]);
+			//console.log("done traversing the " + (uniqua+1) + "st joint of " + myLink.name);
 		}
 	}
 	
 }
 
 kineval.traverseFKJoint = function traverseFKJoint(beginningLoc, myJoint){
-	console.log("moving through a joint");
-	copiedBeginning = matrix_copy(beginningLoc);
-	jointTransformZy = matrix_multiply(generate_rotation_matrix_Z(myJoint.origin.rpy[2]), generate_rotation_matrix_Y(myJoint.origin.rpy[1]));
-	jointTransformInGeneral = generate_translation_matrix(myJoint.origin.xyz[0], myJoint.origin.xyz[1], myJoint.origin.xyz[2]);
-	localTransform = matrix_multiply(jointTransformZy, jointTransformInGeneral);
+	//console.log("moving through a joint");
+	var copiedBeginning = matrix_copy(beginningLoc);
+	var jointTransformZy = matrix_multiply(generate_rotation_matrix_Z(myJoint.origin.rpy[2]), generate_rotation_matrix_Y(myJoint.origin.rpy[1]));
+	var jointTransformZyx = matrix_multiply(jointTransformZy, generate_rotation_matrix_X(myJoint.origin.rpy[0]));
+	var jointTransformInGeneral = generate_translation_matrix(myJoint.origin.xyz[0], myJoint.origin.xyz[1], myJoint.origin.xyz[2]);
+	var localTransform = matrix_multiply(jointTransformInGeneral, jointTransformZyx);
 
-	localXform = generate_identity();
+	var localXform = generate_identity();
 	
 	if(typeof myJoint.type === 'undefined'){
 		//first we go grab a quaternion from the kineval functionality
@@ -110,11 +121,13 @@ kineval.traverseFKJoint = function traverseFKJoint(beginningLoc, myJoint){
 	else {
 		localXform = generate_identity();
 	}
-	xformcalcpart1 = matrix_multiply(beginningLoc, localXform);
+	var xformcalcpart1 = matrix_multiply(beginningLoc, localXform);
 	myJoint.xform = matrix_multiply(xformcalcpart1, localTransform); 
+	printMatrix(myJoint.xform);
 	//now we have to get all recursive with it...
+	//console.log("about to move through a link called " + robot.links[myJoint.child].name);
 	kineval.traverseFKLink(matrix_copy(myJoint.xform), robot.links[myJoint.child])
-	
+	//console.log("done traversing a link called " + robot.links[myJoint.child].name);
 	
 }
     // STENCIL: reference code alternates recursive traversal over 

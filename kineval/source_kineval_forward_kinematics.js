@@ -73,7 +73,7 @@ kineval.traverseFKLink = function traverse_forward_kinematics_link(link,parent_x
 
     // recursively traverse each child joint with current_xform as the top of the matrix stack
     var i;
-    if (typeof link.children !== 'undefined') { // return if there are no children
+    if (typeof link.children !== 'undefined' || link.children.length > 0) { // return if there are no children
         for (i=0;i<link.children.length;i++) {
             // KE T: crude copy using mat mult
             kineval.traverseFKJoint(robot.joints[link.children[i]],current_xform);

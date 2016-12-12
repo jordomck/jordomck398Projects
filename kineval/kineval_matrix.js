@@ -23,7 +23,8 @@ function matrix_copy(m1) {
 function matrix_multiply(m1, m2){
 	var mat = [];
 	var i, j, k;
-	
+	//printMatrix(m1); //this is making it in just fine
+	//printMatrix(m2); //also fine
 	if(m2.length != m1[0].length) {
 		//Console.log("THIS CANNOT MULTIPLY BECAUSE OF DIMENSION MISMATCH");
 		return 0;	
@@ -31,13 +32,21 @@ function matrix_multiply(m1, m2){
 	for(i=0; i < m1.length; i++){
 		//we must generate a new submatrix of the output to place results in
 		mat[i] = [];
-		for(j=0; j< m2[0].length; j++) { //for COLUMN of m2
+		for(j=0; j < m1.length; j++) { //for COLUMN of m2
+		
 		//now we take a dot product
-			for(k = 0; k < m2.length; k++) {
-				mat[i][j] += m1[i][k]*m2[k][j];	
-			}	
+			mat[i].push(0);
+			
+			for(k = 0; k < m1[0].length; k++) {
+				//console.log(m1[i][k]);				
+				mat[i][j] += m1[i][k] * m2[k][j];	
+			}
+
 		}		
 	}
+	//console.log(mat.length +  mat[0].length);
+	////console.log("matrix multiplied and ready to print!");
+	//printMatrix(mat);
 	return mat;
 }
     //   matrix_transpose
@@ -75,6 +84,13 @@ function vector_cross(v1, v2){
 	
 	return output;
 }
+
+function printMatrix(m){
+	console.log(m[0][0] + " " + m[0][1] + " " + m[0][2] + " " + m[0][3]);
+	console.log(m[1][0] + " " + m[1][1] + " " + m[1][2] + " " + m[1][3]);
+	console.log(m[2][0] + " " + m[2][1] + " " + m[2][2] + " " + m[2][3]);
+	console.log(m[3][0] + " " + m[3][1] + " " + m[3][2] + " " + m[3][3]);
+}
     //   generate_identity
 function generate_identity(){
 	//this is a 4d matrix
@@ -97,8 +113,8 @@ function generate_translation_matrix(xpos, ypos, zpos){
 function generate_rotation_matrix_X(xangle){
 	var mat = [
 	[1, 0, 0, 0], //this row is unmodified because it's the x row.
-	[0, Math.cos(xangle), -Math.sin(xangle)],
-	[0, Math.sin(xangle), Math.cos(xangle)],
+	[0, Math.cos(xangle), -Math.sin(xangle),0],
+	[0, Math.sin(xangle), Math.cos(xangle),0],
 	[0, 0, 0, 1],
 	];
 	return mat;
@@ -109,7 +125,7 @@ function generate_rotation_matrix_Y(yangle){
 	var mat = [
 		[Math.cos(yangle), 0, Math.sin(yangle), 0],
 		[0, 1, 0, 0],
-		[0, -Math.sin(yangle), Math.cos(yangle)],
+		[0, -Math.sin(yangle), Math.cos(yangle), 0],
 		[0, 0, 0, 1]
 	];
 	return mat;
