@@ -46,7 +46,7 @@ kineval.buildFKTransforms = function buildFKTransforms() {
 	//set heading world
 	heading_world = matrix_multiply(robot.origin.xform, forward_heading_local)
 	robot_heading = heading_world;
-	console.log(robot_heading[0][0] + " " +  robot_heading[1][0] + " " + robot_heading[2][0] + " " +  robot_heading[3][0]);
+	//console.log(robot_heading[0][0] + " " +  robot_heading[1][0] + " " + robot_heading[2][0] + " " +  robot_heading[3][0]);
 	//**robot_heading = heading_world
 	
 	//compute strafe headings with the lateral in the same manner

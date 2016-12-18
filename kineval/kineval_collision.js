@@ -1,4 +1,4 @@
-
+3
 /*-- |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/| |\/|
 
     KinEval | Kinematic Evaluator | collision detection
@@ -55,18 +55,63 @@ kineval.poseIsCollision = function robot_collision_test(q) {
 
     // traverse robot kinematics to test each body for collision
     // STENCIL: implement forward kinematics for collision detection
-    //return robot_collision_forward_kinematics(q);
+    return robot_collision_forward_kinematics(q); //this function returns the colliding link.
 
 }
 
+function robot_collision_forward_kinematics(q){
+	//we need to redo all of the forward kinematics, since this is for hypothetical poses too...
+	var myXform = matrix_multiply(generate_translation_matrix(q[0],q[1],q[2]),
+		matrix_multiply(matrix_multiply(generate_rotation_matrix_Z(q[5]),
+		generate_rotation_matrix_Y(q[4])),generate_rotation_matrix_X(q[3])));
+	//now we can recurse upwards
+	return traverse_collision_forward_kinematics_link(robot.links[robot.base], myXform, q);
+}
+
+function traverse_collision_forward_kinematics_joint(joint, xform, q){
+
+	// first we grab the position of the joint in comparison to its parent link. this formula is (TRANSLATION((ZY)X))
+	var jointPosInLinkFrame = matrix_multiply(generate_translation_matrix(joint.origin.xyz[0], joint.origin.xyz[1], joint.origin.xyz[2]),
+	matrix_multiply(matrix_multiply(generate_rotation_matrix_Z(joint.origin.rpy[2]),generate_rotation_matrix_Y(joint.origin.rpy[1])),generate_rotation_matrix_X(joint.origin.rpy[0])));
+	//*phew*
+	
+	// push local transform at top of matrix stack ** THIS PART IS ADAPTING FOR THE LENGTH OF THE PARENT LINK
+	var xformLocalTop = matrix_multiply(xform, jointPosInLinkFrame);
+	//At this point, the joint should be at its proper origin. However, the joint still needs to rotate or do its prismatic thing.
+	//we can copy this code in from the original implementation of FK
+	var localXform = generate_identity();
+	if(typeof joint.type === 'undefined'){
+		//first we go grab a quaternion from the kineval functionality
+		var theQuaternionVersion = kineval.quaternion_normalize(kineval.quaternion_from_axisangle([joint.axis[0],joint.axis[1],joint.axis[2]],joint.angle));
+		//now we use it to make a rotation matrix!
+        localXform = matrix_copy(kineval.quaternion_to_rotation_matrix(theQuaternionVersion));
+	}else if(joint.type === 'revolute' || joint.type === 'continuous'){
+		//first we go grab a quaternion from the kineval functionality
+		theQuaternionVersion = kineval.quaternion_normalize(kineval.quaternion_from_axisangle([joint.axis[0],joint.axis[1],joint.axis[2]],joint.angle));
+		//now we use it to make a rotation matrix!
+        localXform = matrix_copy(kineval.quaternion_to_rotation_matrix(theQuaternionVersion));
+		
+	}else if(joint.type === 'prismatic'){
+		localXform = matrix_copy(generate_translation_matrix(
+			joint.axis[0]*joint.angle,
+			joint.axis[1]*joint.angle,
+			joint.axis[2]*joint.angle
+			));
+	} 
+
+
+	
+	//push local transform of JOINT at top of matrix stack ** COULD BE PRISMATIC OR REVOLUTE, IDC
+	var xformDone = matrix_multiply(xformLocalTop, localXform);
+	
+	return traverse_collision_forward_kinematics_link(robot.links[joint.child], xformDone, q);
+}
 
 
 function traverse_collision_forward_kinematics_link(link,mstack,q) {
 
     // test collision by transforming obstacles in world to link space
-/*
-    mstack_inv = matrix_invert_affine(mstack);
-*/
+
     mstack_inv = numeric.inv(mstack);
 
     var i;

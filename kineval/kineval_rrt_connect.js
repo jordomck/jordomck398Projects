@@ -108,13 +108,31 @@ kineval.robotRRTPlannerInit = function robot_rrt_planner_init() {
     for (x in robot.joints) {
         q_names[x] = q_start_config.length;
         q_index[q_start_config.length] = x;
-        q_start_config = q_start_config.concat(robot.joints[x].angle);
+        //keep things within joint limits here
+		if(typeof robot.joints[x].type !== 'undefined'){
+			if((robot.joints[x].type === 'revolute' || robot.joints[x].type === 'prismatic')){
+				q_start_config.push(normalize_joint_state(robot.joints[x].limit.upper, robot.joints[x].limit.lower, robot.joints[x].angle));
+			} else {
+				q_start_config.push(robot.joints[x].angle % (2*Math.PI));
+			}
+		} else {
+			q_start_config.push(robot.joints[x].angle % (2*Math.PI));
+		}
     }
-
+	
+	var lookingAtStartTree = true;
     // set goal configuration as the zero configuration
     var i; 
     q_goal_config = new Array(q_start_config.length);
     for (i=0;i<q_goal_config.length;i++) q_goal_config[i] = 0;
+	
+	//set up the starting tree
+	startTree = tree_init(q_start_config);
+	
+	
+	//set up the ending tree
+	endTree = tree_init(q_goal_config);
+	
 
     // flag to continue rrt iterations
     rrt_iterate = true;
@@ -127,13 +145,17 @@ kineval.robotRRTPlannerInit = function robot_rrt_planner_init() {
 
 
 function robot_rrt_planner_iterate() {
-
     var i;
     rrt_alg = 1;  // 0: basic rrt (OPTIONAL), 1: rrt_connect (REQUIRED)
-
+	var randomConfig = random_config(startTree.vertices[0].vertex.length);
+	//console.log(startTree);
     if (rrt_iterate && (Date.now()-cur_time > 10)) {
         cur_time = Date.now();
-
+		  // basic rrt
+            if (rrt_iter_count < 1000) {
+                extend_result = rrt_extend(randomConfig, startTree, 10);
+                // KE 2 : should check for goal and generate path back to start
+            }
     // STENCIL: implement single rrt iteration here. an asynch timing mechanism 
     //   is used instead of a for loop to avoid blocking and non-responsiveness 
     //   in the browser.
@@ -226,13 +248,190 @@ function tree_add_edge(tree,q1_idx,q2_idx) {
 
     // STENCIL: implement RRT-Connect functions here, such as:
     //   rrt_extend
+		//this is the step that reaches from the tree towards our generated point.
+	function rrt_extend(config, tree, stepMagnitude){
+		var nearest = nearest_neighbor(config, tree);
+		var nearestIdx = nearest[1];
+		var nearestVert = nearest[0];
+		
+		var created = new_config(config, nearestVert, stepMagnitude);
+		//now we need to check if the created node is in collision or not
+		if(!kineval.poseIsCollision(created)){
+			//since it's a valid node, we can add it to the tree.
+			//make sure to add edges!
+			tree_add_vertex(tree, created);
+			tree_add_edge(tree, tree.vertices.length-1, nearestIdx);
+			
+			//did we make it there?
+			distanceToGoal = get_config_distance(created, config);
+			if(distanceToGoal < stepMagnitude){
+				//we made it!
+				return "connected";
+			} else return "continuing";
+		} else return "collided";
+	}
     //   rrt_connect
+	//this is the one that basically calls rrt_extend until it gets the go-ahead to be done
+	function rrt_connect(tree, config){
+		STEP_MAGNITUDE = .6;
+		//init while
+		var extendStatus = "continuing";
+		while(extendStatus == "continuing"){
+			extendStatus = rrt_extend(config, tree, STEP_MAGNITUDE);
+		}
+		return extendStatus;
+	}
     //   random_config
+	function random_config(howManyDofs){
+		SCALE_FACTOR = 900;
+		var q = [];
+		//we need to go all the way through q, because i can't be bothered to count all the dofs
+		for(var i = 0; i < howManyDofs; i++){
+			
+			if((i == 1) || (i == 3) || (i == 5)){ //don't move out of xz plane. no y movement, also don't rotate about anything but yaxis
+				q[i] = 0;
+			}
+			else if(i == 0){ //randomize an x-position
+				var upperLimit = robot_boundary[1][0];
+				var lowerLimit = robot_boundary[0][0];
+				var mag = Math.abs(upperLimit - lowerLimit);
+				var randomValue = Math.random() * mag;
+				q[i] = randomValue + lowerLimit;
+				
+			} else if (i == 2) { //randomize a z-position
+				var upperLimit = robot_boundary[0][1];
+				var lowerLimit = robot_boundary[0][0];
+				var mag = Math.abs(upperLimit - lowerLimit);
+				var randomValue = Math.random() * mag;
+				q[i] = randomValue + lowerLimit;
+			} else if (i == 4) { //randomize base rotation
+				q[i] = Math.random() * 2 * Math.PI;
+				
+			} //we've done all the randomization we need to do for the base. Now we must use the q_index to find out the configuration data for the joint in question
+			
+			else if (typeof robot.joints[q_index[i]].type === 'undefined'){
+				//if it's undefined, we assume it's continuous and we can just assign a random angle to it.
+				q[i] = Math.random() * 2 * Math.PI;
+			} else {
+				//we know the joint has a type. If it has limits, we need to know that and assign within them. If it does not, we can assign arbitrarily
+				//revolute and prismatic both have limits
+				if(robot.joints[q_index[i]].type === 'revolute' || robot.joints[q_index[i]].type === 'prismatic'){
+					//first calculate the acceptable range
+					var upperLimit = robot.joints[q_index[i]].limit.upper ;
+					var lowerLimit = robot.joints[q_index[i]].limit.lower;
+					var magnitudeOfRange = upperLimit - lowerLimit;
+					var randomValue = Math.random() * magnitudeOfRange;
+					q[i] = lowerLimit + magnitudeOfRange;
+				} else {
+					q[i] = Math.random() * 2 * Math.PI; //it's continuous and we can just assign whatever we want.
+				}
+			}
+		}
+		return q;
+	}
     //   new_config
+	//this function should linearly interpolate between the goal and the new config. Except not really. either get there, or step one step closer.
+	function new_config(goal, beginning, stepMagnitude){
+		var diff = []
+		//first we have to find the vector between the two configurations
+		for(var i = 0; i < beginning.vertex.length; i++){
+			diff[i] = goal[i] - beginning.vertex[i];
+		}
+
+		var norm = vector_normalize(diff);
+		var finalVersion = [];
+		for(var i = 0; i < beginning.vertex.length; i++){
+			finalVersion[i] = beginning.vertex[i] + stepMagnitude * norm[i];
+		}
+		console.log(finalVersion);
+		return finalVersion;
+		
+	}
+	// get_config_distance
+	function get_config_distance(q1, q2){
+		//this is just pythagorean distance in all DOFs
+		var distance = 0;
+		//console.log(q1);
+		//console.log(q2);
+		for(var i = 0; i < q2.length; i++){
+			distance += Math.pow((q1[i]-q2[i]), 2);
+		}
+		return Math.sqrt(distance);
+	}
     //   nearest_neighbor
+	function nearest_neighbor(q, tree){
+		var bestDistance = get_config_distance(q, tree.vertices[0].vertex); //initially the best one will be the zeroth index of the tree
+		var bestIdx = 0;
+		
+		//iterate through entire tree one step at a time
+		for(var i = 0; i < tree.vertices.length; i++){
+			var currDistance = get_config_distance(tree.vertices[i], q);
+			if(currDistance < bestDistance){
+				bestDistance = currDistance;
+				bestIdx = i;
+			}
+		}
+		
+		//now we'd really like to return both the index and the config, so we'll do it as a tuple
+		var returnable = [];
+		returnable[0] = tree.vertices[bestIdx];
+		returnable[1] = bestIdx;
+		return returnable;
+	}
     //   normalize_joint_state
+	//I'm pretty sure this is meant to be a function that enforces joint boundaries
+	function normalize_joint_state(upper, lower, current){
+		if(current > upper)
+			return upper;
+		if(current < lower)
+			return lower;
+		return current;
+	}
     //   find_path
+	//this is the function that should call path_dfs, I think.
+	function find_path(currentTree, goal, startNode){
+		//first reset all 'searched' on all nodes in the tree
+		for(var i = 0; i < currentTree.vertices.length; i++){
+			currentTree.vertices[i].searched = false;
+		}
+		
+		path = path_dfs(goal, startNode);
+		if(path != "failure"){
+			//color the path on the mapping
+			for(var i = 0; i < path.length; i++){
+				//each index of path is a vertex
+				path[i].geom.material.color = {r:1, g:0, b:0};
+				
+			}
+			//thank goodness we don't need to force the robot to execute this path!
+		}
+		return path; //returns "failure" if it didn't work, I believe.
+	}
+	
     //   path_dfs
+	//this is a recursive tree traversal that hopes to find the goal config
+	function path_dfs(goalConfig, vertex){
+		if(vertex == goalConfig){
+			return [vertex]; //this has to be an array so we can push other parts of the path to it...
+		}
+		vertex.searched = true;
+		
+		//now we need to search all nonsearched edges adjacent to this vertex
+		for(var i = 0; i < vertex.edges.length; i++){
+			if(vertex.edges[i].searched) continue; //don't get caught bouncing back and forth across the tree...
+			//recursive call goes here
+			var result = path_dfs(goalConfig, vertex.edges[i]);
+			
+			//now we need to work backwards if one of the iteration stacks DOES come up with something
+			//if a stack returns anything but "failure" we know we're in good shape and we can add another node to the list
+			if(result != "failure"){
+				result.push(vertex);
+				return result;
+			}
+		}
+		
+		return "failure";
+	}
 
 
 
