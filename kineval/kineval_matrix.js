@@ -18,6 +18,7 @@ function matrix_copy(m1) {
 }
 
 
+
     // STENCIL: reference matrix code has the following functions:
     //   matrix_multiply
 function matrix_multiply(m1, m2){
@@ -26,16 +27,16 @@ function matrix_multiply(m1, m2){
 	//printMatrix(m1); //this is making it in just fine
 	//printMatrix(m2); //also fine
 	if(m2.length != m1[0].length) {
-		//Console.log("THIS CANNOT MULTIPLY BECAUSE OF DIMENSION MISMATCH");
+		console.log("THIS CANNOT MULTIPLY BECAUSE OF DIMENSION MISMATCH");
 		return 0;	
 	}
 	for(i=0; i < m1.length; i++){
 		//we must generate a new submatrix of the output to place results in
 		mat[i] = [];
-		for(j=0; j < m1.length; j++) { //for COLUMN of m2
+		for(j=0; j < m2[0].length; j++) { //for COLUMN of m2
 		
 		//now we take a dot product
-			mat[i].push(0);
+			mat[i][j] = 0;
 			
 			for(k = 0; k < m1[0].length; k++) {
 				//console.log(m1[i][k]);				
@@ -49,19 +50,46 @@ function matrix_multiply(m1, m2){
 	//printMatrix(mat);
 	return mat;
 }
+
+function fancy_vector_cross(v1, v2){ //v2 is 2d, v1 is 1d.....
+	//console.log("The fancy cross product was called");
+	output = [];
+	output[0] = v1[1]*v2[2][0] - v1[2]*v2[1][0];	
+	output[1] = v1[2]*v2[0][0] - v1[0]*v2[2][0];
+	output[2] = v1[0]*v2[1][0] - v1[1]*v2[0][0];
+	
+	return output;
+}
+
     //   matrix_transpose
 function matrix_transpose(m1){
 	var mat = [];
 	var i, j;
-	for(i = 0; i < m1.length; i++){
+	for(i = 0; i < m1[0].length; i++){
 		mat[i] = [];
-		for(j = 0; j < m1[0].length; j++){
+		for(j = 0; j < m1.length; j++){
 			mat[i][j] = m1[j][i];
 		}
 	}
 	return mat;
 }
     //   matrix_pseudoinverse
+function matrix_pseudoinverse(m){
+
+    if (m[0].length == m.length) {  
+        return numeric.inv(m);
+    }
+    else if (m[0].length < m.length) { 
+        var transpose = matrix_transpose(m);
+        var squareVersion = matrix_multiply(transpose,m);  
+        return matrix_multiply(numeric.inv(squareVersion), transpose);
+    }
+    else { 
+        var transpose = matrix_transpose(m);
+        var squareVersion = matrix_multiply(m, transpose);  
+        return matrix_multiply(transpose, numeric.inv(squareVersion));
+    }
+}
     //   matrix_invert_affine
     //   vector_normalize
 function vector_normalize(v){
@@ -77,19 +105,33 @@ function vector_normalize(v){
 }
     //   vector_cross
 function vector_cross(v1, v2){
+	console.log("The cross product was called");
 	output = [];
-	output[0] = v1[1]*v2[2] - v1[2]*v2[1];
-	output[2] = v1[1]*v2[0] - v1[1]*v2[0];
+	output[0] = v1[1]*v2[2] - v1[2]*v2[1];	
 	output[1] = v1[2]*v2[0] - v1[0]*v2[2];
+	output[2] = v1[0]*v2[1] - v1[1]*v2[0];
 	
 	return output;
 }
 
 function printMatrix(m){
-	console.log(m[0][0] + " " + m[0][1] + " " + m[0][2] + " " + m[0][3]);
-	console.log(m[1][0] + " " + m[1][1] + " " + m[1][2] + " " + m[1][3]);
-	console.log(m[2][0] + " " + m[2][1] + " " + m[2][2] + " " + m[2][3]);
-	console.log(m[3][0] + " " + m[3][1] + " " + m[3][2] + " " + m[3][3]);
+	console.log("printing matrix- outer size is " + m.length + ", inner size is " + m[0].length);
+	for(var outer = 0; outer < m.length; outer++){
+		myStr= "";
+		for(var inner = 0; inner < m[0].length; inner++){
+			myStr = myStr + " " + m[outer][inner];
+		}
+		console.log(myStr);
+	}
+}
+
+function printVector(v){
+	console.log("printing vector:");
+	var myStr = "";
+	for(var counter = 0; counter < v.length; counter++){
+		myStr += " " + v[counter];
+	}
+	console.log(myStr);
 }
     //   generate_identity
 function generate_identity(){
@@ -125,7 +167,7 @@ function generate_rotation_matrix_Y(yangle){
 	var mat = [
 		[Math.cos(yangle), 0, Math.sin(yangle), 0],
 		[0, 1, 0, 0],
-		[0, -Math.sin(yangle), Math.cos(yangle), 0],
+		[-Math.sin(yangle), 0, Math.cos(yangle), 0],
 		[0, 0, 0, 1]
 	];
 	return mat;

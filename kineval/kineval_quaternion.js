@@ -31,5 +31,15 @@
 		mat[3] = [0,0,0,1];
 		return mat;
 	}
+	
+	
     //   quaternion_multiply
+	kineval.quaternion_multiply = function quaternion_multiply(u,v){
+		var end = [];
+		end.a = u.a*v.a - u.b*v.b - u.c*v.c - u.d*v.d;
+		end.b = u.a*v.b + u.b*v.a - u.c*v.d + u.d*v.c;
+		end.c = u.a*v.c + u.b*v.d + u.c*v.a - u.d*v.b;
+		end.d = u.a*v.d - u.b*v.c + u.c*v.b + u.d*v.a;
+		return end;
+	}
 

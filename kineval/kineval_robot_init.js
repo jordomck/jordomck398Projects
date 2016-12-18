@@ -45,7 +45,6 @@ kineval.initRobotJoints = function initRobotJoints() {
 
         // give the joint its name as an id
         robot.joints[x].name = x;
-
         // initialize joint angle value and control input value
         robot.joints[x].angle = 0;
         robot.joints[x].control = 0;

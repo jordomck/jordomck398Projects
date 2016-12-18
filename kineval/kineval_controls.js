@@ -24,11 +24,27 @@ kineval.applyControls = function robot_apply_controls() {
     for (x in robot.joints) {
         if (isNaN(robot.joints[x].control))
             console.warn("kineval: control value for " + x +" is a nan"); //+robot.joints[x].control);
-
         // update joint angles
-        robot.joints[x].angle += robot.joints[x].control;
-
+        robot.joints[x].angle += robot.joints[x].control; 
+		//console.log(robot.joints[x].control);
     // STENCIL: enforce joint limits for prismatic and revolute joints
+	//joints have their limits as marked in their field .limits.lower and .limits.upper
+	//they apply regardless of whether it's revolute or prismatic on the 'angle' attribute.
+	
+		//double-check that the joint does exist, so we don't read fields from an empty object
+		if(typeof robot.joints[x] !== 'undefined'){
+			//now we break if the joint was continuous, since continuous joints don't have rotation limits
+			if(typeof robot.joints[x] === 'revolute' || typeof robot.joints[x] === 'prismatic'){
+				//now limit!
+				if(robot.joints[x].angle < robot.joints[x].limit.lower){ //constrain lower bound
+					robot.joints[x].angle = robot.joints[x].limit.lower;
+				}
+				else if(robot.joints[x].angle > robot.joints[x].limit.upper){ //constrain upper bound
+					robot.joints[x].angle = robot.joints[x].limit.upper;
+				}
+
+			}
+		}
 
 
         // clear controls back to zero for next timestep

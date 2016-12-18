@@ -171,6 +171,7 @@ function my_animate() {
     kineval.params.update_pd = false; // clear PID request for next iteration
 
     // if requested, perform inverse kinematics control to reach to point
+	//kineval.invertArray([1,2,3,4,5]);
     kineval.robotInverseKinematics(kineval.params.ik_target, robot.endeffector.frame, robot.endeffector.position);
 
     // if requested, perform configuration space motion planning to home pose

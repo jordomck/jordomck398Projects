@@ -90,7 +90,7 @@ kineval.traverseFKJoint = function traverse_forward_kinematics_joint(joint,paren
     var current_xform = matrix_multiply(parent_xform,generate_identity());
 
     // compute matrix transform origin of joint in the local space of the parent link
-    local_origin_xform = matrix_multiply(generate_translation_matrix(joint.origin.xyz[0],joint.origin.xyz[1],joint.origin.xyz[2]),matrix_multiply(matrix_multiply(generate_rotation_matrix_Z(joint.origin.rpy[2]),generate_rotation_matrix_Y(joint.origin.rpy[1])),generate_rotation_matrix_X(joint.origin.rpy[0])));
+    var local_origin_xform = matrix_multiply(generate_translation_matrix(joint.origin.xyz[0],joint.origin.xyz[1],joint.origin.xyz[2]),matrix_multiply(matrix_multiply(generate_rotation_matrix_Z(joint.origin.rpy[2]),generate_rotation_matrix_Y(joint.origin.rpy[1])),generate_rotation_matrix_X(joint.origin.rpy[0])));
 
     // compute rotation matrix for current position of joint
     if (typeof joint.type === 'undefined') {
