@@ -177,15 +177,16 @@ function robot_rrt_planner_iterate() {
 				}
 				
 				var idx = 0;
+				
+                for (i=0; i < pathFromEnd.length; i++) {
+                        kineval.motion_plan[idx] = pathFromEnd[i];
+                        idx += 1;
+                }
 				for (i = pathFromStart.length-1; i >= 0; i--) {
 							console.log(pathFromStart[i]);
                             kineval.motion_plan[idx] = pathFromStart[i];
                             idx += 1;
 				}
-                for (i=0; i < pathFromEnd.length; i++) {
-                        kineval.motion_plan[idx] = pathFromEnd[i];
-                        idx += 1;
-                }
 				
 				
 				
