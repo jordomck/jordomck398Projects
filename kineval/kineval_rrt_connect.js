@@ -120,7 +120,7 @@ kineval.robotRRTPlannerInit = function robot_rrt_planner_init() {
 		}
     }
 	
-	var lookingAtStartTree = true;
+	lookingAtStartTree = true;
     // set goal configuration as the zero configuration
     var i; 
     q_goal_config = new Array(q_start_config.length);
@@ -128,11 +128,12 @@ kineval.robotRRTPlannerInit = function robot_rrt_planner_init() {
 	
 	//set up the starting tree
 	startTree = tree_init(q_start_config);
+	treeA = startTree;
 	
 	
 	//set up the ending tree
 	endTree = tree_init(q_goal_config);
-	
+	treeB = endTree;
 
     // flag to continue rrt iterations
     rrt_iterate = true;
@@ -147,15 +148,60 @@ kineval.robotRRTPlannerInit = function robot_rrt_planner_init() {
 function robot_rrt_planner_iterate() {
     var i;
     rrt_alg = 1;  // 0: basic rrt (OPTIONAL), 1: rrt_connect (REQUIRED)
-	var randomConfig = random_config(startTree.vertices[0].vertex.length);
+	var randomConfig = random_config(treeA.vertices[0].vertex.length);
 	//console.log(startTree);
     if (rrt_iterate && (Date.now()-cur_time > 10)) {
         cur_time = Date.now();
-		  // basic rrt
-            if (rrt_iter_count < 1000) {
-                extend_result = rrt_extend(randomConfig, startTree, 10);
-                // KE 2 : should check for goal and generate path back to start
-            }
+		var extendStatus = rrt_extend(randomConfig, treeA, .5);
+		console.log(extendStatus);
+		if(extendStatus != "collided"){
+			var connectStatus = rrt_connect(treeB, treeA.vertices[treeA.newest].vertex);
+			if(connectStatus == "connected"){
+				console.log("we made it, in theory!");
+				rrt_iterate = false; //ALL DONE!
+				pathFromA = find_path(treeA, treeA.vertices[0], treeA.vertices[treeA.newest]);
+				pathFromB = find_path(treeB, treeB.vertices[0], treeB.vertices[treeB.newest]);
+				
+				//now we need to set up the array of states required to get to that destination (for playback)
+				if(lookingAtStartTree){ //treeA is startTree
+					startTree = treeA;
+					endTree = treeB;
+					pathFromStart = pathFromA;
+					pathFromEnd = pathFromB;
+				}
+				else {
+					startTree = treeB;
+					endTree = treeA;
+					pathFromStart = pathFromB;
+					pathFromEnd = pathFromA;
+				}
+				
+				var idx = 0;
+				for (i = pathFromStart.length-1; i >= 0; i--) {
+							console.log(pathFromStart[i]);
+                            kineval.motion_plan[idx] = pathFromStart[i];
+                            idx += 1;
+				}
+                for (i=0; i < pathFromEnd.length; i++) {
+                        kineval.motion_plan[idx] = pathFromEnd[i];
+                        idx += 1;
+                }
+				
+				
+				
+				return "reached";
+			}
+			
+		}
+		//swap trees!
+		var temp = treeA;
+		treeA = treeB;
+		treeB = temp;
+		lookingAtStartTree = !lookingAtStartTree;
+		
+		rrt_iter_count++;
+		
+		
     // STENCIL: implement single rrt iteration here. an asynch timing mechanism 
     //   is used instead of a for loop to avoid blocking and non-responsiveness 
     //   in the browser.
@@ -198,7 +244,6 @@ function tree_init(q) {
 }
 
 function tree_add_vertex(tree,q) {
-
 
     // create new vertex object for tree with given configuration and no edges
     var new_vertex = {};
@@ -249,12 +294,13 @@ function tree_add_edge(tree,q1_idx,q2_idx) {
     // STENCIL: implement RRT-Connect functions here, such as:
     //   rrt_extend
 		//this is the step that reaches from the tree towards our generated point.
-	function rrt_extend(config, tree, stepMagnitude){
+	function rrt_extend(config, tree, stepSize){
 		var nearest = nearest_neighbor(config, tree);
 		var nearestIdx = nearest[1];
+		console.log(nearestIdx);
 		var nearestVert = nearest[0];
 		
-		var created = new_config(config, nearestVert, stepMagnitude);
+		var created = new_config(config, nearestVert, stepSize);
 		//now we need to check if the created node is in collision or not
 		if(!kineval.poseIsCollision(created)){
 			//since it's a valid node, we can add it to the tree.
@@ -264,21 +310,30 @@ function tree_add_edge(tree,q1_idx,q2_idx) {
 			
 			//did we make it there?
 			distanceToGoal = get_config_distance(created, config);
-			if(distanceToGoal < stepMagnitude){
+			//console.log("REMAINING DISTANCE: " + distanceToGoal );
+			//console.log(distanceToGoal);
+
+			if(distanceToGoal < stepSize){
 				//we made it!
 				return "connected";
 			} else return "continuing";
 		} else return "collided";
 	}
+	
+	
+
     //   rrt_connect
 	//this is the one that basically calls rrt_extend until it gets the go-ahead to be done
 	function rrt_connect(tree, config){
-		STEP_MAGNITUDE = .6;
+		var STEP_MAGNITUDE = .5;
 		//init while
 		var extendStatus = "continuing";
+		var counter = 0;
 		while(extendStatus == "continuing"){
 			extendStatus = rrt_extend(config, tree, STEP_MAGNITUDE);
+			counter++;
 		}
+		
 		return extendStatus;
 	}
     //   random_config
@@ -294,16 +349,21 @@ function tree_add_edge(tree,q1_idx,q2_idx) {
 			else if(i == 0){ //randomize an x-position
 				var upperLimit = robot_boundary[1][0];
 				var lowerLimit = robot_boundary[0][0];
-				var mag = Math.abs(upperLimit - lowerLimit);
+				var mag = upperLimit - lowerLimit;
 				var randomValue = Math.random() * mag;
 				q[i] = randomValue + lowerLimit;
 				
 			} else if (i == 2) { //randomize a z-position
-				var upperLimit = robot_boundary[0][1];
-				var lowerLimit = robot_boundary[0][0];
+				var upperLimit = robot_boundary[1][2];
+				
+				//console.log("upper limit: " + upperLimit);
+				var lowerLimit = robot_boundary[0][2];
 				var mag = Math.abs(upperLimit - lowerLimit);
+				
+				//console.log("lower limit: " + lowerLimit);
 				var randomValue = Math.random() * mag;
 				q[i] = randomValue + lowerLimit;
+				//console.log(q[i]);
 			} else if (i == 4) { //randomize base rotation
 				q[i] = Math.random() * 2 * Math.PI;
 				
@@ -333,17 +393,19 @@ function tree_add_edge(tree,q1_idx,q2_idx) {
 	//this function should linearly interpolate between the goal and the new config. Except not really. either get there, or step one step closer.
 	function new_config(goal, beginning, stepMagnitude){
 		var diff = []
+		var mag = 0;
 		//first we have to find the vector between the two configurations
 		for(var i = 0; i < beginning.vertex.length; i++){
 			diff[i] = goal[i] - beginning.vertex[i];
+			mag += diff[i]*diff[i];
 		}
-
-		var norm = vector_normalize(diff);
+		mag = Math.sqrt(mag);
+		
+		
 		var finalVersion = [];
 		for(var i = 0; i < beginning.vertex.length; i++){
-			finalVersion[i] = beginning.vertex[i] + stepMagnitude * norm[i];
+			finalVersion[i] = beginning.vertex[i] + stepMagnitude * (diff[i]/mag);
 		}
-		console.log(finalVersion);
 		return finalVersion;
 		
 	}
@@ -354,7 +416,7 @@ function tree_add_edge(tree,q1_idx,q2_idx) {
 		//console.log(q1);
 		//console.log(q2);
 		for(var i = 0; i < q2.length; i++){
-			distance += Math.pow((q1[i]-q2[i]), 2);
+			distance += (q1[i]-q2[i]) * (q1[i]-q2[i]);
 		}
 		return Math.sqrt(distance);
 	}
@@ -362,10 +424,10 @@ function tree_add_edge(tree,q1_idx,q2_idx) {
 	function nearest_neighbor(q, tree){
 		var bestDistance = get_config_distance(q, tree.vertices[0].vertex); //initially the best one will be the zeroth index of the tree
 		var bestIdx = 0;
-		
+		console.log(tree.vertices.length);
 		//iterate through entire tree one step at a time
 		for(var i = 0; i < tree.vertices.length; i++){
-			var currDistance = get_config_distance(tree.vertices[i], q);
+			var currDistance = get_config_distance(tree.vertices[i].vertex, q);
 			if(currDistance < bestDistance){
 				bestDistance = currDistance;
 				bestIdx = i;
